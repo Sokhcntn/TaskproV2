@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Theo dõi nhiệm vụ | Quản lý tiến độ</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        body { background: #f4f7fc; }
+        .task-table::-webkit-scrollbar { height: 6px; width: 6px; }
+        .task-table::-webkit-scrollbar-track { background: #e2e8f0; border-radius: 10px; }
+        .task-table::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; }
+        tbody tr:nth-child(even) { background-color: #f9fafb; }
+        tbody tr:hover { background-color: #f3f4f6; transition: 0.2s; cursor: pointer; }
+        .modal { transition: opacity 0.2s ease, visibility 0.2s; }
+    </style>
+</head>
+<body class="antialiased">
+
+<div class="max-w-[1600px] mx-auto px-4 md:px-6 py-6 md:py-8">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
+        <div>
+            <h1 class="text-2xl md:text-3xl font-bold text-slate-800 flex items-center gap-3">
+                <i class="fas fa-tasks text-blue-600 text-3xl"></i>
+                Hệ thống theo dõi nhiệm vụ
+            </h1>
+            <p class="text-slate-500 mt-1 text-sm">Double-click vào dòng để chỉnh sửa | Tự động đánh giá thời gian</p>
+        </div>
+        <div class="flex flex-wrap gap-3">
+            <label class="bg-purple-700 hover:bg-purple-800 text-white px-5 py-2.5 rounded-xl shadow-md transition flex items-center gap-2 font-medium text-sm cursor-pointer">
+                <i class="fas fa-file-import"></i> Import Excel/Word
+                <input type="file" id="importFile" accept=".xlsx, .xls, .docx" class="hidden">
+            </label>
+            <button id="exportFilteredBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl shadow-md transition flex items-center gap-2 font-medium text-sm">
+                <i class="fas fa-file-excel"></i> Xuất Excel (lọc)
+            </button>
+            <button id="addTaskBtn" class="bg-blue-700 hover:bg-blue-800 text-white px-5 py-2.5 rounded-xl shadow-md transition flex items-center gap-2 font-medium text-sm">
+                <i class="fas fa-plus-circle"></i> Thêm nhiệm vụ
+            </button>
+            <button id="resetDataBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2.5 rounded-xl transition flex items-center gap-2 text-sm font-medium">
+                <i class="fas fa-undo-alt"></i> Reset mẫu
+            </button>
+        </div>
+    </div>
+
+    <!-- Bộ lọc -->
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-7">
+        <div class="flex flex-wrap items-end gap-4 mb-5">
+            <div class="flex-1 min-w-[180px]">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Hạn giao (từ ngày)</label>
+                <input type="date" id="filterDateFrom" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div class="flex-1 min-w-[180px]">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Hạn giao (đến ngày)</label>
+                <input type="date" id="filterDateTo" class="w-full border rounded-lg px-3 py-2 text-sm">
+            </div>
+            <div class="flex-1 min-w-[220px]">
+                <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Cơ quan chủ trì (lọc)</label>
+                <select id="filterUnit" class="w-full border rounded-lg px-3 py-2 text-sm bg-white"></select>
+            </div>
+            <div class="flex gap-2 items-center">
+                <button id="clearFiltersBtn" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg text-sm"><i class="fas fa-times-circle"></i> Xóa lọc</button>
+                <div class="bg-indigo-50 px-4 py-2 rounded-lg hidden md:block">
+                    <span class="text-indigo-700 text-sm font-semibold">Tổng hợp: </span>
+                    <span id="statsSummary" class="text-sm text-slate-700">0 nhiệm vụ</span>
+                </div>
+            </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <span class="text-xs text-slate-500 mr-1 self-center">Lọc nhanh hạn:</span>
+            <button data-quick="overdue" class="quickFilterBtn px-3 py-1 text-xs rounded-full bg-red-100 text-red-700 hover:bg-red-200">Quá hạn</button>
+            <button data-quick="today" class="quickFilterBtn px-3 py-1 text-xs rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200">Hôm nay</button>
+            <button data-quick="week" class="quickFilterBtn px-3 py-1 text-xs rounded-full bg-sky-100 text-sky-700 hover:bg-sky-200">7 ngày tới</button>
+        </div>
+    </div>
+
+    <!-- Bảng nhiệm vụ -->
+    <div class="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden">
+        <div class="overflow-x-auto task-table">
+            <table class="min-w-[1400px] w-full text-sm">
+                <thead class="bg-slate-100 border-b-2 border-slate-200">
+                    <tr>
+                        <th class="px-4 py-3 text-left">STT</th>
+                        <th class="px-4 py-3 text-left">Văn bản giao</th>
+                        <th class="px-4 py-3 text-left">Nhiệm vụ</th>
+                        <th class="px-4 py-3 text-left">Kết quả công việc</th>
+                        <th class="px-4 py-3 text-left">Thẩm quyền</th>
+                        <th class="px-4 py-3 text-left">Chủ trì</th>
+                        <th class="px-4 py-3 text-left">Phối hợp</th>
+                        <th class="px-4 py-3 text-left">Hạn hoàn thành</th>
+                        <th class="px-4 py-3 text-left">Quy trình</th>
+                        <th class="px-4 py-3 text-left">Ngày hoàn thành</th>
+                        <th class="px-4 py-3 text-left">Đánh giá TG</th>
+                        <th class="px-4 py-3 text-left">Đánh giá CL</th>
+                        <th class="px-4 py-3 text-center">Thao tác</th>
+                    </tr>
+                </thead>
+                <tbody id="taskTableBody"></tbody>
+            </table>
+        </div>
+        <div class="flex justify-between items-center px-5 py-3 border-t border-slate-200 bg-slate-50 text-sm">
+            <div><span id="pageInfo"></span></div>
+            <div class="flex gap-2">
+                <button id="prevPage" class="px-3 py-1 rounded border bg-white disabled:opacity-40"><i class="fas fa-chevron-left"></i></button>
+                <button id="nextPage" class="px-3 py-1 rounded border bg-white disabled:opacity-40"><i class="fas fa-chevron-right"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL THÊM / SỬA -->
+<div id="taskModal" class="modal fixed inset-0 bg-black/50 flex items-center justify-center z-50 invisible opacity-0 transition-all duration-200 p-4" style="visibility: hidden;">
+    <div class="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+        <div class="sticky top-0 bg-white px-6 py-4 border-b flex justify-between items-center">
+            <h3 id="modalTitle" class="text-xl font-bold text-slate-800">Thêm nhiệm vụ</h3>
+            <button id="closeModalBtn" class="text-slate-400 hover:text-slate-600 text-2xl">&times;</button>
+        </div>
+        <div class="p-6">
+            <form id="taskForm" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <input type="hidden" id="taskId">
+                <div class="md:col-span-2"><label class="font-medium">Số văn bản</label><input type="text" id="vbGiao" class="w-full border rounded-lg px-3 py-2"></div>
+                <div class="md:col-span-2"><label class="font-medium">Nhiệm vụ *</label><input type="text" id="nhiemVu" required class="w-full border rounded-lg px-3 py-2"></div>
+                <div><label class="font-medium">Kết quả công việc</label><input type="text" id="ketQuaNoiDung" class="w-full border rounded-lg px-3 py-2"></div>
+                <div><label class="font-medium">Thẩm quyền</label><input type="text" id="thamQuyen" class="w-full border rounded-lg px-3 py-2"></div>
+                <div><label class="font-medium">Chủ trì *</label>
+                    <select id="chuTri" class="w-full border rounded-lg px-3 py-2 bg-white"></select>
+                </div>
+                <div><label class="font-medium">Phối hợp</label>
+                    <select id="phoiHop" class="w-full border rounded-lg px-3 py-2 bg-white"></select>
+                </div>
+                <div><label class="font-medium">Hạn hoàn thành</label><input type="date" id="thoiGian" class="w-full border rounded-lg px-3 py-2"></div>
+                <div class="md:col-span-2"><label class="font-medium">Quy trình</label><textarea id="quyTrinh" rows="2" class="w-full border rounded-lg px-3 py-2"></textarea></div>
+                <div><label class="font-medium">Ngày hoàn thành</label><input type="date" id="ngayHoanThanh" class="w-full border rounded-lg px-3 py-2"></div>
+                <div><label class="font-medium">Đánh giá chất lượng</label><input type="text" id="dgChatLuong" class="w-full border rounded-lg px-3 py-2"></div>
+                <div class="md:col-span-2 flex justify-end gap-3 pt-3">
+                    <button type="button" id="cancelModalBtn" class="px-5 py-2 border rounded-lg">Hủy</button>
+                    <button type="submit" class="px-6 py-2 bg-blue-700 text-white rounded-lg shadow">Lưu nhiệm vụ</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ================= CẤU HÌNH =================
+    const UNIT_LIST = ["Phòng CĐS", "Phòng CN&ĐMST", "Phòng TĐC", "Phòng KH", "Phòng KH-TC", "Văn phòng", "TT. KHCN&ĐMST", "TT. CĐS"];
+    const ALL_UNITS_OPTION = "Tất cả các đơn vị";
+    
+    let tasks = [];
+    let currentPage = 1;
+    const rowsPerPage = 8;
+    let filteredTasks = [];
+
+    const DEFAULT_TASKS = [
+        { id: "1", vbGiao: "GM số 102", nhiemVu: "Phục vụ họp TT BCĐ 57 tháng 5", ketQuaNoiDung: "Đã tổ chức thành công", thamQuyen: "BT", chuTri: "Phòng CĐS", phoiHop: "Văn phòng", thoiGian: "2026-05-08", quyTrinh: "Quy trình họp BCĐ", ngayHoanThanh: "2026-05-08", dgChatLuong: "Tốt" },
+        { id: "2", vbGiao: "CV 7350/UBND-VHXH", nhiemVu: "CV UBND tỉnh yêu cầu báo cáo", ketQuaNoiDung: "Đã gửi báo cáo", thamQuyen: "PCT Hòa", chuTri: "Phòng CĐS", phoiHop: "Văn phòng", thoiGian: "2026-05-01", quyTrinh: "Hành chính", ngayHoanThanh: "2026-04-28", dgChatLuong: "Đạt" },
+        { id: "3", vbGiao: "KH 42/BCĐ", nhiemVu: "Báo cáo hiện trạng", ketQuaNoiDung: "Đang lấy ý kiến", thamQuyen: "Trưởng phòng KH", chuTri: "Phòng KH", phoiHop: "TT. CĐS", thoiGian: "2026-06-15", quyTrinh: "Thu thập số liệu", ngayHoanThanh: "", dgChatLuong: "" }
+    ];
+
+    // Helper tạo ID duy nhất tuyệt đối
+    function generateUniqueId() {
+        return Date.now() + '-' + Math.random().toString(36).substr(2, 9) + '-' + performance.now();
+    }
+
+    // Đánh giá thời gian
+    function evaluateTime(task) {
+        if (!task.thoiGian) return "Chưa có hạn";
+        const deadline = new Date(task.thoiGian);
+        deadline.setHours(0,0,0,0);
+        if (!task.ngayHoanThanh) {
+            const today = new Date(); today.setHours(0,0,0,0);
+            if (deadline < today) return "Quá hạn (chưa hoàn thành)";
+            return "Chưa hoàn thành";
+        }
+        const completed = new Date(task.ngayHoanThanh);
+        completed.setHours(0,0,0,0);
+        if (completed < deadline) return "Trước hạn";
+        if (completed.getTime() === deadline.getTime()) return "Đúng hạn";
+        return "Trễ hạn";
+    }
+
+    // Lưu & tải
+    function saveToLocal() { localStorage.setItem('taskflow_final_v3', JSON.stringify(tasks)); }
+    function loadTasks() {
+        const stored = localStorage.getItem('taskflow_final_v3');
+        if (stored) tasks = JSON.parse(stored);
+        else tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
+        refreshFilterAndRender();
+    }
+
+    // Lọc
+    function getFilteredTasks() {
+        const from = document.getElementById('filterDateFrom').value;
+        const to = document.getElementById('filterDateTo').value;
+        const unit = document.getElementById('filterUnit').value;
+        return tasks.filter(t => {
+            if (unit !== 'ALL' && t.chuTri !== unit) return false;
+            if (from && t.thoiGian && t.thoiGian < from) return false;
+            if (to && t.thoiGian && t.thoiGian > to) return false;
+            return true;
+        });
+    }
+
+    function updateStats() {
+        const filtered = getFilteredTasks();
+        const today = new Date().toISOString().slice(0,10);
+        const overdue = filtered.filter(t => t.thoiGian && t.thoiGian < today && !t.ngayHoanThanh).length;
+        document.getElementById('statsSummary').innerHTML = `${filtered.length} nhiệm vụ | <span class="text-red-600">⚠️ Quá hạn: ${overdue}</span>`;
+    }
+
+    function formatDate(dateStr) { if(!dateStr) return ''; const p = dateStr.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; }
+    function escapeHtml(str) { if(!str) return ''; return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]); }
+
+    // Render bảng
+    function renderTable() {
+        const tbody = document.getElementById('taskTableBody');
+        if (!filteredTasks.length) {
+            tbody.innerHTML = '<tr><td colspan="13" class="text-center py-12 text-slate-400">Không có nhiệm vụ nào</td></tr>';
+            document.getElementById('pageInfo').innerText = '';
+            return;
+        }
+        const totalPages = Math.ceil(filteredTasks.length / rowsPerPage);
+        const start = (currentPage-1)*rowsPerPage;
+        const end = start + rowsPerPage;
+        const pageData = filteredTasks.slice(start, end);
+        tbody.innerHTML = pageData.map((task, idx) => {
+            const stt = start+idx+1;
+            const timeEval = evaluateTime(task);
+            let timeClass = '';
+            if (timeEval.includes('Quá hạn') || timeEval === 'Trễ hạn') timeClass = 'text-red-600 font-semibold';
+            else if (timeEval === 'Trước hạn') timeClass = 'text-green-600';
+            else if (timeEval === 'Đúng hạn') timeClass = 'text-blue-600';
+            else timeClass = 'text-slate-500';
+            return `<tr class="border-b task-row" data-id="${task.id}">
+                <td class="px-4 py-3">${stt}</td>
+                <td class="px-4 py-3">${escapeHtml(task.vbGiao||'')}</td>
+                <td class="px-4 py-3 font-medium">${escapeHtml(task.nhiemVu)}</td>
+                <td class="px-4 py-3">${escapeHtml(task.ketQuaNoiDung||'')}</td>
+                <td class="px-4 py-3">${escapeHtml(task.thamQuyen||'')}</td>
+                <td class="px-4 py-3">${escapeHtml(task.chuTri)}</td>
+                <td class="px-4 py-3">${escapeHtml(task.phoiHop||'')}</td>
+                <td class="px-4 py-3">${task.thoiGian ? formatDate(task.thoiGian) : ''}</td>
+                <td class="px-4 py-3 truncate max-w-[180px]" title="${escapeHtml(task.quyTrinh||'')}">${escapeHtml((task.quyTrinh||'').substring(0,40))}</td>
+                <td class="px-4 py-3">${task.ngayHoanThanh ? formatDate(task.ngayHoanThanh) : ''}</td>
+                <td class="px-4 py-3 ${timeClass}">${timeEval}</td>
+                <td class="px-4 py-3">${escapeHtml(task.dgChatLuong||'')}</td>
+                <td class="px-4 py-3 text-center">
+                    <button class="edit-btn text-blue-600 hover:bg-blue-100 p-1 rounded" data-id="${task.id}"><i class="fas fa-edit"></i></button>
+                    <button class="delete-btn text-red-500 hover:bg-red-100 p-1 rounded ml-1" data-id="${task.id}"><i class="fas fa-trash-alt"></i></button>
+                </td>
+            </tr>`;
+        }).join('');
+        document.getElementById('pageInfo').innerHTML = `Hiển thị ${start+1}-${Math.min(end, filteredTasks.length)} / ${filteredTasks.length}`;
+        document.getElementById('prevPage').disabled = currentPage === 1;
+        document.getElementById('nextPage').disabled = currentPage === totalPages;
+        updateStats();
+    }
+
+    function refreshFilterAndRender() {
+        filteredTasks = getFilteredTasks();
+        currentPage = 1;
+        renderTable();
+        updateUnitFilterDropdown();
+    }
+
+    function updateUnitFilterDropdown() {
+        const select = document.getElementById('filterUnit');
+        const cur = select.value;
+        select.innerHTML = '<option value="ALL">📌 Tất cả đơn vị</option>';
+        UNIT_LIST.forEach(u => select.innerHTML += `<option value="${u}">🏢 ${u}</option>`);
+        if (cur !== 'ALL' && UNIT_LIST.includes(cur)) select.value = cur;
+        else select.value = 'ALL';
+    }
+
+    function populateFormDropdowns() {
+        const chuTriSelect = document.getElementById('chuTri');
+        const phoiHopSelect = document.getElementById('phoiHop');
+        chuTriSelect.innerHTML = '<option value="">-- Chọn --</option>' + UNIT_LIST.map(u => `<option value="${u}">${u}</option>`).join('');
+        phoiHopSelect.innerHTML = `<option value="${ALL_UNITS_OPTION}">${ALL_UNITS_OPTION}</option>` + UNIT_LIST.map(u => `<option value="${u}">${u}</option>`).join('');
+    }
+
+    function openModal(task = null) {
+        populateFormDropdowns();
+        if (task) {
+            document.getElementById('modalTitle').innerText = 'Chỉnh sửa nhiệm vụ';
+            document.getElementById('taskId').value = task.id;
+            document.getElementById('vbGiao').value = task.vbGiao || '';
+            document.getElementById('nhiemVu').value = task.nhiemVu;
+            document.getElementById('ketQuaNoiDung').value = task.ketQuaNoiDung || '';
+            document.getElementById('thamQuyen').value = task.thamQuyen || '';
+            document.getElementById('chuTri').value = task.chuTri;
+            document.getElementById('phoiHop').value = task.phoiHop || '';
+            document.getElementById('thoiGian').value = task.thoiGian || '';
+            document.getElementById('quyTrinh').value = task.quyTrinh || '';
+            document.getElementById('ngayHoanThanh').value = task.ngayHoanThanh || '';
+            document.getElementById('dgChatLuong').value = task.dgChatLuong || '';
+        } else {
+            document.getElementById('modalTitle').innerText = 'Thêm nhiệm vụ';
+            document.getElementById('taskForm').reset();
+            document.getElementById('taskId').value = '';
+        }
+        const modal = document.getElementById('taskModal');
+        modal.classList.remove('invisible', 'opacity-0');
+        modal.style.visibility = 'visible';
+    }
+
+    function closeModal() {
+        const modal = document.getElementById('taskModal');
+        modal.classList.add('invisible', 'opacity-0');
+        modal.style.visibility = 'hidden';
+    }
+
+    // Lưu từ modal
+    document.getElementById('taskForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const id = document.getElementById('taskId').value;
+        const nhiemVu = document.getElementById('nhiemVu').value.trim();
+        if (!nhiemVu) { alert("Nhiệm vụ không được để trống"); return; }
+        const chuTri = document.getElementById('chuTri').value;
+        if (!chuTri) { alert("Chọn đơn vị chủ trì"); return; }
+        const newTask = {
+            id: id || generateUniqueId(),
+            vbGiao: document.getElementById('vbGiao').value,
+            nhiemVu: nhiemVu,
+            ketQuaNoiDung: document.getElementById('ketQuaNoiDung').value,
+            thamQuyen: document.getElementById('thamQuyen').value,
+            chuTri: chuTri,
+            phoiHop: document.getElementById('phoiHop').value,
+            thoiGian: document.getElementById('thoiGian').value,
+            quyTrinh: document.getElementById('quyTrinh').value,
+            ngayHoanThanh: document.getElementById('ngayHoanThanh').value,
+            dgChatLuong: document.getElementById('dgChatLuong').value
+        };
+        if (id) {
+            const index = tasks.findIndex(t => t.id === id);
+            if (index !== -1) tasks[index] = newTask;
+        } else {
+            tasks.unshift(newTask);
+        }
+        saveToLocal();
+        refreshFilterAndRender();
+        closeModal();
+    });
+
+    // Event delegation cho các nút và double-click
+    document.addEventListener('click', (e) => {
+        const editBtn = e.target.closest('.edit-btn');
+        const deleteBtn = e.target.closest('.delete-btn');
+        if (editBtn) {
+            const id = editBtn.getAttribute('data-id');
+            const task = tasks.find(t => t.id === id);
+            if (task) openModal(task);
+        }
+        if (deleteBtn) {
+            const id = deleteBtn.getAttribute('data-id');
+            if (confirm('Xóa nhiệm vụ này?')) {
+                tasks = tasks.filter(t => t.id !== id);
+                saveToLocal();
+                refreshFilterAndRender();
+            }
+        }
+    });
+
+    document.addEventListener('dblclick', (e) => {
+        const row = e.target.closest('.task-row');
+        if (row) {
+            const id = row.getAttribute('data-id');
+            const task = tasks.find(t => t.id === id);
+            if (task) openModal(task);
+        }
+    });
+
+    // Các nút chức năng
+    document.getElementById('addTaskBtn').addEventListener('click', () => openModal());
+    document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+    document.getElementById('cancelModalBtn').addEventListener('click', closeModal);
+
+    document.getElementById('resetDataBtn').addEventListener('click', () => {
+        if (confirm('Reset về dữ liệu mẫu? Mọi thay đổi sẽ mất.')) {
+            tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
+            saveToLocal();
+            refreshFilterAndRender();
+        }
+    });
+
+    // ================= IMPORT EXCEL / WORD =================
+    function showToast(msg, isError = false) {
+        let toast = document.createElement('div');
+        toast.className = `fixed bottom-5 right-5 z-50 px-4 py-2 rounded-lg shadow-lg text-white ${isError ? 'bg-red-600' : 'bg-emerald-600'} toast-msg`;
+        toast.innerHTML = `<i class="fas ${isError ? 'fa-exclamation-triangle' : 'fa-check-circle'} mr-2"></i>${msg}`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    async function parseExcel(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+                if (!rows || rows.length < 2) reject("File Excel không có dữ liệu");
+                const headers = rows[0].map(cell => (cell || "").toString().trim().toLowerCase());
+                const mapping = {
+                    vbGiao: /văn bản|vb|số văn bản/i,
+                    nhiemVu: /nhiệm vụ|task/i,
+                    ketQuaNoiDung: /kết quả công việc|kết quả thực hiện|nội dung kết quả/i,
+                    thamQuyen: /thẩm quyền/i,
+                    chuTri: /chủ trì/i,
+                    phoiHop: /phối hợp/i,
+                    thoiGian: /hạn|deadline|ngày giao/i,
+                    quyTrinh: /quy trình/i,
+                    ngayHoanThanh: /ngày hoàn thành|hoàn thành ngày/i,
+                    dgChatLuong: /chất lượng|đánh giá cl/i
+                };
+                let colIdx = {};
+                for (let [field, regex] of Object.entries(mapping)) {
+                    for (let i=0; i<headers.length; i++) {
+                        if (regex.test(headers[i])) { colIdx[field] = i; break; }
+                    }
+                }
+                if (!colIdx.nhiemVu) reject("Không tìm thấy cột Nhiệm vụ");
+                const tasksExtracted = [];
+                for (let i=1; i<rows.length; i++) {
+                    const row = rows[i];
+                    if (!row || row.every(c=>!c||c.toString().trim()==="")) continue;
+                    let rawChuTri = colIdx.chuTri !== undefined ? (row[colIdx.chuTri] || "") : "";
+                    let mappedChuTri = UNIT_LIST.find(u => rawChuTri.includes(u)) || (rawChuTri.trim() || UNIT_LIST[0]);
+                    let rawDate = colIdx.thoiGian !== undefined ? row[colIdx.thoiGian] : "";
+                    let dueDate = "";
+                    if (rawDate) {
+                        if (typeof rawDate === 'number') {
+                            let d = XLSX.SSF.parse_date_code(rawDate);
+                            if(d) dueDate = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+                        } else {
+                            let p = new Date(rawDate);
+                            if(!isNaN(p)) dueDate = p.toISOString().slice(0,10);
+                            else dueDate = rawDate.toString();
+                        }
+                    }
+                    let rawComplete = colIdx.ngayHoanThanh !== undefined ? row[colIdx.ngayHoanThanh] : "";
+                    let completeDate = "";
+                    if (rawComplete) {
+                        if (typeof rawComplete === 'number') {
+                            let d = XLSX.SSF.parse_date_code(rawComplete);
+                            if(d) completeDate = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+                        } else {
+                            let p = new Date(rawComplete);
+                            if(!isNaN(p)) completeDate = p.toISOString().slice(0,10);
+                            else completeDate = rawComplete.toString();
+                        }
+                    }
+                    tasksExtracted.push({
+                        id: generateUniqueId(),  // ID duy nhất tuyệt đối
+                        vbGiao: colIdx.vbGiao !== undefined ? (row[colIdx.vbGiao] || "") : "",
+                        nhiemVu: colIdx.nhiemVu !== undefined ? (row[colIdx.nhiemVu] || "") : "",
+                        ketQuaNoiDung: colIdx.ketQuaNoiDung !== undefined ? (row[colIdx.ketQuaNoiDung] || "") : "",
+                        thamQuyen: colIdx.thamQuyen !== undefined ? (row[colIdx.thamQuyen] || "") : "",
+                        chuTri: mappedChuTri,
+                        phoiHop: colIdx.phoiHop !== undefined ? (row[colIdx.phoiHop] || "") : "",
+                        thoiGian: dueDate,
+                        quyTrinh: colIdx.quyTrinh !== undefined ? (row[colIdx.quyTrinh] || "") : "",
+                        ngayHoanThanh: completeDate,
+                        dgChatLuong: colIdx.dgChatLuong !== undefined ? (row[colIdx.dgChatLuong] || "") : ""
+                    });
+                }
+                resolve(tasksExtracted.filter(t => t.nhiemVu && t.nhiemVu.trim()));
+            };
+            reader.onerror = () => reject("Đọc file thất bại");
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    async function parseWord(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                mammoth.extractRawText({ arrayBuffer: arrayBuffer })
+                    .then(result => {
+                        const text = result.value;
+                        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 15);
+                        const tasksExtracted = [];
+                        for (let line of lines) {
+                            line = line.trim();
+                            if (line.length < 10) continue;
+                            let dateMatch = line.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})|(\d{4}-\d{1,2}-\d{1,2})/);
+                            let dueDate = dateMatch ? dateMatch[0] : "";
+                            if (dueDate && dueDate.includes('/')) {
+                                let parts = dueDate.split('/');
+                                if (parts.length === 3) dueDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+                            }
+                            let chuTriGuess = UNIT_LIST.find(u => line.includes(u)) || UNIT_LIST[0];
+                            let taskName = line.length > 100 ? line.substring(0,100)+"..." : line;
+                            tasksExtracted.push({
+                                id: generateUniqueId(),
+                                vbGiao: "",
+                                nhiemVu: taskName,
+                                ketQuaNoiDung: "",
+                                thamQuyen: "",
+                                chuTri: chuTriGuess,
+                                phoiHop: "",
+                                thoiGian: dueDate,
+                                quyTrinh: "",
+                                ngayHoanThanh: "",
+                                dgChatLuong: ""
+                            });
+                        }
+                        resolve(tasksExtracted);
+                    })
+                    .catch(err => reject("Lỗi đọc Word: "+err.message));
+            };
+            reader.onerror = () => reject("Không thể đọc file Word");
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    document.getElementById('importFile').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const ext = file.name.split('.').pop().toLowerCase();
+        showToast("Đang đọc file...", false);
+        try {
+            let importedTasks = [];
+            if (ext === 'xlsx' || ext === 'xls') {
+                importedTasks = await parseExcel(file);
+            } else if (ext === 'docx') {
+                importedTasks = await parseWord(file);
+            } else {
+                alert("Chỉ hỗ trợ .xlsx, .xls, .docx");
+                return;
+            }
+            if (importedTasks.length === 0) throw new Error("Không tìm thấy nhiệm vụ nào");
+            tasks.push(...importedTasks);
+            saveToLocal();
+            refreshFilterAndRender();
+            showToast(`✅ Đã thêm ${importedTasks.length} nhiệm vụ`, false);
+        } catch(err) {
+            showToast("Lỗi: " + err, true);
+        }
+        e.target.value = '';
+    });
+
+    // Export
+    document.getElementById('exportFilteredBtn').addEventListener('click', () => {
+        const exportData = filteredTasks.map((t,i) => ({
+            'STT': i+1,
+            'Văn bản giao': t.vbGiao,
+            'Nhiệm vụ': t.nhiemVu,
+            'Kết quả công việc': t.ketQuaNoiDung,
+            'Thẩm quyền': t.thamQuyen,
+            'Chủ trì': t.chuTri,
+            'Phối hợp': t.phoiHop,
+            'Hạn hoàn thành': t.thoiGian,
+            'Quy trình': t.quyTrinh,
+            'Ngày hoàn thành': t.ngayHoanThanh,
+            'Đánh giá thời gian': evaluateTime(t),
+            'Đánh giá chất lượng': t.dgChatLuong
+        }));
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Nhiệm vụ');
+        XLSX.writeFile(wb, `danh_sach_nhiem_vu_${new Date().toISOString().slice(0,19)}.xlsx`);
+    });
+
+    // Sự kiện lọc, phân trang
+    document.getElementById('filterDateFrom').addEventListener('change', refreshFilterAndRender);
+    document.getElementById('filterDateTo').addEventListener('change', refreshFilterAndRender);
+    document.getElementById('filterUnit').addEventListener('change', refreshFilterAndRender);
+    document.getElementById('clearFiltersBtn').addEventListener('click', () => {
+        document.getElementById('filterDateFrom').value = '';
+        document.getElementById('filterDateTo').value = '';
+        document.getElementById('filterUnit').value = 'ALL';
+        refreshFilterAndRender();
+    });
+    document.getElementById('prevPage').addEventListener('click', () => { if(currentPage>1){ currentPage--; renderTable(); } });
+    document.getElementById('nextPage').addEventListener('click', () => { const total = Math.ceil(filteredTasks.length/rowsPerPage); if(currentPage<total){ currentPage++; renderTable(); } });
+    document.querySelectorAll('.quickFilterBtn').forEach(btn => btn.addEventListener('click', (e) => {
+        const type = btn.dataset.quick;
+        const today = new Date().toISOString().slice(0,10);
+        if(type === 'overdue') {
+            document.getElementById('filterDateFrom').value = '';
+            document.getElementById('filterDateTo').value = '';
+            refreshFilterAndRender();
+            filteredTasks = filteredTasks.filter(t => t.thoiGian && t.thoiGian < today && !t.ngayHoanThanh);
+            renderTable();
+        } else if(type === 'today') {
+            document.getElementById('filterDateFrom').value = today;
+            document.getElementById('filterDateTo').value = today;
+            refreshFilterAndRender();
+        } else if(type === 'week') {
+            let next = new Date();
+            next.setDate(next.getDate()+7);
+            document.getElementById('filterDateFrom').value = today;
+            document.getElementById('filterDateTo').value = next.toISOString().slice(0,10);
+            refreshFilterAndRender();
+        }
+    }));
+
+    loadTasks();
+</script>
+</body>
+</html>

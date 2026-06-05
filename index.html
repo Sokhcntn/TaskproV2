@@ -30,7 +30,7 @@
                 <i class="fas fa-tasks text-blue-600 text-3xl"></i>
                 Hệ thống theo dõi nhiệm vụ
             </h1>
-            <p class="text-slate-500 mt-1 text-sm">Double-click vào dòng để chỉnh sửa | <span id="syncStatusLabel" class="font-semibold text-green-600">(Đồng bộ Google Sheets)</span></p>
+            <p class="text-slate-500 mt-1 text-sm">Double-click vào dòng để chỉnh sửa | <span id="syncStatusLabel" class="font-semibold">(Chế độ: ☁️ Google Sheets)</span></p>
         </div>
         <div class="flex flex-wrap gap-3">
             <label class="bg-purple-700 hover:bg-purple-800 text-white px-5 py-2.5 rounded-xl shadow-md transition flex items-center gap-2 font-medium text-sm cursor-pointer">
@@ -114,7 +114,7 @@
     </div>
 </div>
 
-<!-- MODAL THÊM / SỬA (dùng chung) -->
+<!-- MODAL THÊM / SỬA -->
 <div id="taskModal" class="modal fixed inset-0 bg-black/50 flex items-center justify-center z-50 invisible opacity-0 transition-all duration-200 p-4">
     <div class="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
         <div class="sticky top-0 bg-white px-6 py-4 border-b flex justify-between items-center">
@@ -152,20 +152,20 @@
     const UNIT_LIST = ["Phòng CĐS", "Phòng CN&ĐMST", "Phòng TĐC", "Phòng KH", "Phòng KH-TC", "Văn phòng", "TT. KHCN&ĐMST", "TT. CĐS"];
     const ALL_UNITS_OPTION = "Tất cả các đơn vị";
     
-    // ⭐ THAY URL CỦA BẠN VÀO ĐÂY ⭐
-    const DEFAULT_SHEET_URL = "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec";
+    // ⭐ URL GOOGLE SHEETS CỦA BẠN - ĐÃ ĐƯỢC CHÈN TRỰC TIẾP ⭐
+    const DEFAULT_SHEET_URL = "https://script.google.com/macros/s/AKfycbxUTBrHLmKRZ3ja15ISRrqgOXT3rzJ8SBII4z6FAL22RnmCXuAGHbB0z1IQOgFLoXFOGg/exec";
     
     let tasks = [];
     let currentPage = 1;
     const rowsPerPage = 8;
     let filteredTasks = [];
 
-    // Khởi tạo chế độ đồng bộ: luôn bật và dùng URL cố định
+    // Luôn bật chế độ đồng bộ với URL cố định
     let syncMode = true;
     let sheetApiUrl = DEFAULT_SHEET_URL;
 
     // Hiển thị trạng thái
-    document.getElementById('syncStatusLabel').innerHTML = '(☁️ Đồng bộ Google Sheets)';
+    document.getElementById('syncStatusLabel').innerHTML = '(☁️ Google Sheets)';
 
     // Hàm tạo ID duy nhất
     function generateUniqueId() {
@@ -233,8 +233,6 @@
     // Lưu dữ liệu lên Google Sheets (ghi từng dòng)
     async function saveTasksToSource() {
         if (syncMode && sheetApiUrl) {
-            // Xóa hết dữ liệu cũ trên sheet? Ở đây ta chỉ ghi đè từng dòng, nhưng để đơn giản, ta gửi toàn bộ tasks
-            // Vì Apps Script hỗ trợ POST từng dòng, ta sẽ gửi từng task (có thể chậm nhưng ổn định)
             for (let task of tasks) {
                 await callSheetAPI('POST', task);
             }
@@ -243,7 +241,7 @@
         localStorage.setItem('taskflow_final_v3', JSON.stringify(tasks));
     }
 
-    // ========== CÁC HÀM XỬ LÝ BẢNG (giữ nguyên) ==========
+    // ========== CÁC HÀM XỬ LÝ BẢNG ==========
     function formatDate(dateStr) { if(!dateStr) return ''; const p = dateStr.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; }
     function escapeHtml(str) { if(!str) return ''; return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]); }
 
@@ -270,7 +268,7 @@
         const tbody = document.getElementById('taskTableBody');
         filteredTasks = getFilteredTasks();
         if (!filteredTasks.length) {
-            tbody.innerHTML = '<tr><td colspan="13" class="text-center py-12 text-slate-400">Không có nhiệm vụ nào</td></tr>';
+            tbody.innerHTML = '</tr><td colspan="13" class="text-center py-12 text-slate-400">Không có nhiệm vụ nào</td></tr>';
             document.getElementById('pageInfo').innerText = '';
             return;
         }
@@ -303,7 +301,7 @@
                     <button class="edit-btn text-blue-600 hover:bg-blue-100 p-1 rounded" data-id="${task.id}"><i class="fas fa-edit"></i></button>
                     <button class="delete-btn text-red-500 hover:bg-red-100 p-1 rounded ml-1" data-id="${task.id}"><i class="fas fa-trash-alt"></i></button>
                 </td>
-            </td>`;
+            </tr>`;
         }).join('');
         document.getElementById('pageInfo').innerHTML = `Hiển thị ${start+1}-${Math.min(end, filteredTasks.length)} / ${filteredTasks.length}`;
         document.getElementById('prevPage').disabled = currentPage === 1;
@@ -451,7 +449,7 @@
     }
 
     async function parseExcel(file) {
-        // Hàm parseExcel giữ nguyên như phiên bản trước (có thể copy từ code cũ)
+        // Hàm parseExcel giữ nguyên (đã có trong code cũ)
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = function(e) {

@@ -18,6 +18,7 @@
         tbody tr:nth-child(even) { background-color: #f9fafb; }
         tbody tr:hover { background-color: #f3f4f6; transition: 0.2s; cursor: pointer; }
         .modal { transition: opacity 0.2s ease, visibility 0.2s; }
+        .toast-msg { z-index: 9999; }
     </style>
 </head>
 <body class="antialiased">
@@ -30,9 +31,12 @@
                 <i class="fas fa-tasks text-blue-600 text-3xl"></i>
                 Hệ thống theo dõi nhiệm vụ
             </h1>
-            <p class="text-slate-500 mt-1 text-sm">Double-click vào dòng để chỉnh sửa | <span id="syncStatusLabel" class="font-semibold">(Chế độ: ☁️ Google Sheets)</span></p>
+            <p class="text-slate-500 mt-1 text-sm">Double-click vào dòng để chỉnh sửa | <span id="syncStatusLabel" class="font-semibold">(💾 Lưu cục bộ)</span></p>
         </div>
         <div class="flex flex-wrap gap-3">
+            <button id="configSheetBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl shadow-md transition flex items-center gap-2 text-sm font-medium">
+                <i class="fas fa-cloud-upload-alt"></i> Kết nối Google Sheets
+            </button>
             <label class="bg-purple-700 hover:bg-purple-800 text-white px-5 py-2.5 rounded-xl shadow-md transition flex items-center gap-2 font-medium text-sm cursor-pointer">
                 <i class="fas fa-file-import"></i> Import Excel/Word
                 <input type="file" id="importFile" accept=".xlsx, .xls, .docx" class="hidden">
@@ -114,8 +118,27 @@
     </div>
 </div>
 
+<!-- Modal kết nối Google Sheets -->
+<div id="configModal" class="modal fixed inset-0 bg-black/50 flex items-center justify-center z-50 invisible opacity-0 transition-all duration-200 p-4" style="visibility: hidden;">
+    <div class="bg-white rounded-2xl max-w-md w-full shadow-xl">
+        <div class="px-6 py-4 border-b flex justify-between items-center">
+            <h3 class="text-xl font-bold">Kết nối Google Sheets</h3>
+            <button id="closeConfigBtn" class="text-slate-400 text-2xl">&times;</button>
+        </div>
+        <div class="p-6">
+            <p class="text-sm text-slate-600 mb-3">Nhập URL Web App (đã triển khai từ Apps Script):</p>
+            <input type="url" id="sheetApiUrl" class="w-full border rounded-lg px-3 py-2 mb-4" placeholder="https://script.google.com/macros/s/.../exec">
+            <div class="flex gap-3">
+                <button id="saveConfigBtn" class="bg-blue-700 text-white px-4 py-2 rounded-lg flex-1">Lưu & Đồng bộ</button>
+                <button id="disconnectBtn" class="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg flex-1">Ngắt kết nối</button>
+            </div>
+            <p class="text-xs text-slate-400 mt-3">🔐 Dữ liệu sẽ được lưu trực tiếp vào Google Sheet của bạn. Mọi người dùng cùng link sẽ nhìn thấy dữ liệu chung.</p>
+        </div>
+    </div>
+</div>
+
 <!-- MODAL THÊM / SỬA -->
-<div id="taskModal" class="modal fixed inset-0 bg-black/50 flex items-center justify-center z-50 invisible opacity-0 transition-all duration-200 p-4">
+<div id="taskModal" class="modal fixed inset-0 bg-black/50 flex items-center justify-center z-50 invisible opacity-0 transition-all duration-200 p-4" style="visibility: hidden;">
     <div class="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
         <div class="sticky top-0 bg-white px-6 py-4 border-b flex justify-between items-center">
             <h3 id="modalTitle" class="text-xl font-bold text-slate-800">Thêm nhiệm vụ</h3>
@@ -148,24 +171,18 @@
 </div>
 
 <script>
-    // ================= CẤU HÌNH CỐ ĐỊNH =================
+    // ================= CẤU HÌNH =================
     const UNIT_LIST = ["Phòng CĐS", "Phòng CN&ĐMST", "Phòng TĐC", "Phòng KH", "Phòng KH-TC", "Văn phòng", "TT. KHCN&ĐMST", "TT. CĐS"];
     const ALL_UNITS_OPTION = "Tất cả các đơn vị";
-    
-    // ⭐ URL GOOGLE SHEETS CỦA BẠN - ĐÃ ĐƯỢC CHÈN TRỰC TIẾP ⭐
-    const DEFAULT_SHEET_URL = "https://script.google.com/macros/s/AKfycbxUTBrHLmKRZ3ja15ISRrqgOXT3rzJ8SBII4z6FAL22RnmCXuAGHbB0z1IQOgFLoXFOGg/exec";
     
     let tasks = [];
     let currentPage = 1;
     const rowsPerPage = 8;
     let filteredTasks = [];
 
-    // Luôn bật chế độ đồng bộ với URL cố định
-    let syncMode = true;
-    let sheetApiUrl = DEFAULT_SHEET_URL;
-
-    // Hiển thị trạng thái
-    document.getElementById('syncStatusLabel').innerHTML = '(☁️ Google Sheets)';
+    // Chế độ đồng bộ
+    let syncMode = false;
+    let sheetApiUrl = "";
 
     // Hàm tạo ID duy nhất
     function generateUniqueId() {
@@ -189,36 +206,68 @@
         return "Trễ hạn";
     }
 
-    // Giao tiếp với Google Sheets (API)
+    // ================= LƯU TRỮ ĐỒNG BỘ =================
+    function saveSyncConfig(url, mode) {
+        if (mode) {
+            localStorage.setItem('sheetApiUrl', url);
+            localStorage.setItem('syncMode', 'true');
+        } else {
+            localStorage.removeItem('sheetApiUrl');
+            localStorage.setItem('syncMode', 'false');
+        }
+        syncMode = mode;
+        sheetApiUrl = url;
+        document.getElementById('syncStatusLabel').innerHTML = syncMode ? '(☁️ Đồng bộ Google Sheets)' : '(💾 Lưu cục bộ)';
+    }
+
+    function loadSyncConfig() {
+        const storedUrl = localStorage.getItem('sheetApiUrl');
+        const storedMode = localStorage.getItem('syncMode');
+        if (storedUrl && storedMode === 'true') {
+            sheetApiUrl = storedUrl;
+            syncMode = true;
+            document.getElementById('syncStatusLabel').innerHTML = '(☁️ Đồng bộ Google Sheets)';
+        } else {
+            syncMode = false;
+            document.getElementById('syncStatusLabel').innerHTML = '(💾 Lưu cục bộ)';
+        }
+    }
+
+    // API call
     async function callSheetAPI(method, data = null, id = null) {
-        if (!syncMode || !sheetApiUrl) throw new Error("Chưa cấu hình URL");
+        if (!syncMode || !sheetApiUrl) throw new Error("Chưa kết nối Google Sheets");
         let url = sheetApiUrl;
         if (method === 'DELETE' && id) url = `${sheetApiUrl}?method=DELETE&id=${id}`;
         else if (method !== 'GET') url = `${sheetApiUrl}?method=${method}`;
         
-        const options = { method: 'GET', headers: { 'Content-Type': 'application/json' } };
+        const options = { 
+            method: (method === 'GET' ? 'GET' : 'POST'), 
+            headers: { 'Content-Type': 'application/json' } 
+        };
         if (method !== 'GET') {
-            options.method = 'POST';
             options.body = JSON.stringify({ method, data, id });
         }
         const res = await fetch(url, options);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         return json;
     }
 
-    // Tải dữ liệu từ nguồn (ưu tiên Google Sheets)
+    // Tải dữ liệu từ nguồn
     async function loadTasksFromSource() {
         if (syncMode && sheetApiUrl) {
             try {
                 const response = await fetch(sheetApiUrl);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const remoteTasks = await response.json();
                 tasks = remoteTasks.map(t => ({ ...t, id: String(t.id) }));
                 return;
             } catch(err) {
                 console.error("Lỗi tải từ Google Sheets, fallback localStorage", err);
+                showToast("Lỗi kết nối Google Sheets: " + err.message, true);
             }
         }
-        // Fallback: dùng localStorage nếu không kết nối được
+        // Fallback localStorage
         const stored = localStorage.getItem('taskflow_final_v3');
         if (stored) tasks = JSON.parse(stored);
         else {
@@ -230,21 +279,30 @@
         }
     }
 
-    // Lưu dữ liệu lên Google Sheets (ghi từng dòng)
-    async function saveTasksToSource() {
+    async function saveTaskToSource(task, isNew = true) {
         if (syncMode && sheetApiUrl) {
-            for (let task of tasks) {
-                await callSheetAPI('POST', task);
-            }
-            return;
+            const method = isNew ? 'POST' : 'PUT';
+            const result = await callSheetAPI(method, task, isNew ? null : task.id);
+            if (result.status === 'error') throw new Error(result.message);
+            if (result.status === 'conflict') throw new Error("Dữ liệu đã bị thay đổi bởi người khác. Hãy tải lại trang.");
+            return result;
+        } else {
+            localStorage.setItem('taskflow_final_v3', JSON.stringify(tasks));
+            return { status: 'ok' };
         }
-        localStorage.setItem('taskflow_final_v3', JSON.stringify(tasks));
     }
 
-    // ========== CÁC HÀM XỬ LÝ BẢNG ==========
-    function formatDate(dateStr) { if(!dateStr) return ''; const p = dateStr.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; }
-    function escapeHtml(str) { if(!str) return ''; return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]); }
+    async function deleteTaskFromSource(taskId) {
+        if (syncMode && sheetApiUrl) {
+            return await callSheetAPI('DELETE', null, taskId);
+        } else {
+            tasks = tasks.filter(t => t.id !== taskId);
+            localStorage.setItem('taskflow_final_v3', JSON.stringify(tasks));
+            return { status: 'deleted' };
+        }
+    }
 
+    // ================= XỬ LÝ BẢNG =================
     function getFilteredTasks() {
         const from = document.getElementById('filterDateFrom').value;
         const to = document.getElementById('filterDateTo').value;
@@ -264,11 +322,14 @@
         document.getElementById('statsSummary').innerHTML = `${filtered.length} nhiệm vụ | <span class="text-red-600">⚠️ Quá hạn: ${overdue}</span>`;
     }
 
+    function formatDate(dateStr) { if(!dateStr) return ''; const p = dateStr.split('-'); return `${p[2]}/${p[1]}/${p[0]}`; }
+    function escapeHtml(str) { if(!str) return ''; return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]); }
+
     function renderTable() {
         const tbody = document.getElementById('taskTableBody');
         filteredTasks = getFilteredTasks();
         if (!filteredTasks.length) {
-            tbody.innerHTML = '</tr><td colspan="13" class="text-center py-12 text-slate-400">Không có nhiệm vụ nào</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="13" class="text-center py-12 text-slate-400">Không có nhiệm vụ nào</td></tr>';
             document.getElementById('pageInfo').innerText = '';
             return;
         }
@@ -364,7 +425,7 @@
         modal.style.visibility = 'hidden';
     }
 
-    // Lưu từ modal
+    // Lưu từ modal (thêm/sửa)
     document.getElementById('taskForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const id = document.getElementById('taskId').value;
@@ -372,6 +433,7 @@
         if (!nhiemVu) { alert("Nhiệm vụ không được để trống"); return; }
         const chuTri = document.getElementById('chuTri').value;
         if (!chuTri) { alert("Chọn đơn vị chủ trì"); return; }
+        
         const newTask = {
             id: id || generateUniqueId(),
             vbGiao: document.getElementById('vbGiao').value,
@@ -385,16 +447,46 @@
             ngayHoanThanh: document.getElementById('ngayHoanThanh').value,
             dgChatLuong: document.getElementById('dgChatLuong').value
         };
-        if (id) {
-            const index = tasks.findIndex(t => t.id === id);
-            if (index !== -1) tasks[index] = newTask;
-        } else {
-            tasks.unshift(newTask);
+        
+        try {
+            if (id) {
+                const index = tasks.findIndex(t => t.id === id);
+                if (index !== -1) {
+                    await saveTaskToSource(newTask, false);
+                    tasks[index] = newTask;
+                }
+            } else {
+                await saveTaskToSource(newTask, true);
+                tasks.unshift(newTask);
+            }
+            await refreshFilterAndRender();
+            closeModal();
+            showToast(id ? "Đã cập nhật nhiệm vụ" : "Đã thêm nhiệm vụ mới", false);
+        } catch(err) {
+            console.error(err);
+            showToast("Lỗi: " + err.message, true);
         }
-        await saveTasksToSource();
-        await refreshFilterAndRender();
-        closeModal();
     });
+
+    // Xóa
+    window.deleteTask = async (id) => {
+        if (confirm('Xóa nhiệm vụ này?')) {
+            try {
+                await deleteTaskFromSource(id);
+                tasks = tasks.filter(t => t.id !== id);
+                await refreshFilterAndRender();
+                showToast("Đã xóa nhiệm vụ", false);
+            } catch(err) {
+                showToast("Lỗi khi xóa: " + err.message, true);
+            }
+        }
+    };
+
+    // Edit
+    window.editTask = (id) => {
+        const task = tasks.find(t => t.id === id);
+        if (task) openModal(task);
+    };
 
     // Event delegation
     document.addEventListener('click', (e) => {
@@ -402,15 +494,11 @@
         const deleteBtn = e.target.closest('.delete-btn');
         if (editBtn) {
             const id = editBtn.getAttribute('data-id');
-            const task = tasks.find(t => t.id === id);
-            if (task) openModal(task);
+            editTask(id);
         }
         if (deleteBtn) {
             const id = deleteBtn.getAttribute('data-id');
-            if (confirm('Xóa nhiệm vụ này?')) {
-                tasks = tasks.filter(t => t.id !== id);
-                saveTasksToSource().then(() => refreshFilterAndRender());
-            }
+            deleteTask(id);
         }
     });
 
@@ -418,28 +506,36 @@
         const row = e.target.closest('.task-row');
         if (row) {
             const id = row.getAttribute('data-id');
-            const task = tasks.find(t => t.id === id);
-            if (task) openModal(task);
+            editTask(id);
         }
     });
 
-    // Nút thêm, đóng modal, reset, import, export
+    // Nút chức năng
     document.getElementById('addTaskBtn').addEventListener('click', () => openModal());
     document.getElementById('closeModalBtn').addEventListener('click', closeModal);
     document.getElementById('cancelModalBtn').addEventListener('click', closeModal);
 
     document.getElementById('resetDataBtn').addEventListener('click', async () => {
-        if (confirm('Reset về dữ liệu mẫu?')) {
-            tasks = [
+        if (confirm('Reset về dữ liệu mẫu? Mọi thay đổi sẽ mất.')) {
+            const defaultTasks = [
                 { id: "1", vbGiao: "GM số 102", nhiemVu: "Phục vụ họp TT BCĐ 57 tháng 5", ketQuaNoiDung: "Đã tổ chức thành công", thamQuyen: "BT", chuTri: "Phòng CĐS", phoiHop: "Văn phòng", thoiGian: "2026-05-08", quyTrinh: "Quy trình họp BCĐ", ngayHoanThanh: "2026-05-08", dgChatLuong: "Tốt" },
                 { id: "2", vbGiao: "CV 7350/UBND-VHXH", nhiemVu: "CV UBND tỉnh yêu cầu báo cáo", ketQuaNoiDung: "Đã gửi báo cáo", thamQuyen: "PCT Hòa", chuTri: "Phòng CĐS", phoiHop: "Văn phòng", thoiGian: "2026-05-01", quyTrinh: "Hành chính", ngayHoanThanh: "2026-04-28", dgChatLuong: "Đạt" },
                 { id: "3", vbGiao: "KH 42/BCĐ", nhiemVu: "Báo cáo hiện trạng", ketQuaNoiDung: "Đang lấy ý kiến", thamQuyen: "Trưởng phòng KH", chuTri: "Phòng KH", phoiHop: "TT. CĐS", thoiGian: "2026-06-15", quyTrinh: "Thu thập số liệu", ngayHoanThanh: "", dgChatLuong: "" }
             ];
-            await saveTasksToSource();
+            tasks = [...defaultTasks];
+            if (syncMode && sheetApiUrl) {
+                for (let task of tasks) {
+                    await saveTaskToSource(task, true);
+                }
+            } else {
+                localStorage.setItem('taskflow_final_v3', JSON.stringify(tasks));
+            }
             await refreshFilterAndRender();
+            showToast("Đã reset dữ liệu mẫu", false);
         }
     });
 
+    // Import / Export (giữ nguyên, chỉ thêm đồng bộ)
     function showToast(msg, isError = false) {
         let toast = document.createElement('div');
         toast.className = `fixed bottom-5 right-5 z-50 px-4 py-2 rounded-lg shadow-lg text-white ${isError ? 'bg-red-600' : 'bg-emerald-600'} toast-msg`;
@@ -449,7 +545,6 @@
     }
 
     async function parseExcel(file) {
-        // Hàm parseExcel giữ nguyên (đã có trong code cũ)
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = function(e) {
@@ -462,7 +557,7 @@
                 const mapping = {
                     vbGiao: /văn bản|vb|số văn bản/i,
                     nhiemVu: /nhiệm vụ|task/i,
-                    ketQuaNoiDung: /kết quả công việc|kết quả thực hiện/i,
+                    ketQuaNoiDung: /kết quả công việc|kết quả thực hiện|nội dung kết quả/i,
                     thamQuyen: /thẩm quyền/i,
                     chuTri: /chủ trì/i,
                     phoiHop: /phối hợp/i,
@@ -578,15 +673,24 @@
         showToast("Đang đọc file...", false);
         try {
             let importedTasks = [];
-            if (ext === 'xlsx' || ext === 'xls') importedTasks = await parseExcel(file);
-            else if (ext === 'docx') importedTasks = await parseWord(file);
-            else { alert("Chỉ hỗ trợ .xlsx, .xls, .docx"); return; }
+            if (ext === 'xlsx' || ext === 'xls') {
+                importedTasks = await parseExcel(file);
+            } else if (ext === 'docx') {
+                importedTasks = await parseWord(file);
+            } else {
+                alert("Chỉ hỗ trợ .xlsx, .xls, .docx");
+                return;
+            }
             if (importedTasks.length === 0) throw new Error("Không tìm thấy nhiệm vụ nào");
-            tasks.push(...importedTasks);
-            await saveTasksToSource();
+            for (let task of importedTasks) {
+                await saveTaskToSource(task, true);
+                tasks.unshift(task);
+            }
             await refreshFilterAndRender();
             showToast(`✅ Đã thêm ${importedTasks.length} nhiệm vụ`, false);
-        } catch(err) { showToast("Lỗi: " + err, true); }
+        } catch(err) { 
+            showToast("Lỗi: " + err.message, true);
+        }
         e.target.value = '';
     });
 
@@ -596,6 +700,34 @@
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Nhiệm vụ');
         XLSX.writeFile(wb, `danh_sach_nhiem_vu_${new Date().toISOString().slice(0,19)}.xlsx`);
+    });
+
+    // Modal kết nối
+    const configModal = document.getElementById('configModal');
+    document.getElementById('configSheetBtn').addEventListener('click', () => {
+        document.getElementById('sheetApiUrl').value = sheetApiUrl || '';
+        configModal.classList.remove('invisible', 'opacity-0');
+        configModal.style.visibility = 'visible';
+    });
+    document.getElementById('closeConfigBtn').addEventListener('click', () => {
+        configModal.classList.add('invisible', 'opacity-0');
+        configModal.style.visibility = 'hidden';
+    });
+    document.getElementById('saveConfigBtn').addEventListener('click', async () => {
+        const url = document.getElementById('sheetApiUrl').value.trim();
+        if (!url) { alert("Vui lòng nhập URL"); return; }
+        saveSyncConfig(url, true);
+        await refreshFilterAndRender();
+        configModal.classList.add('invisible', 'opacity-0');
+        configModal.style.visibility = 'hidden';
+        alert("Đã chuyển sang chế độ đồng bộ Google Sheets.");
+    });
+    document.getElementById('disconnectBtn').addEventListener('click', () => {
+        saveSyncConfig('', false);
+        refreshFilterAndRender();
+        configModal.classList.add('invisible', 'opacity-0');
+        configModal.style.visibility = 'hidden';
+        alert("Đã ngắt kết nối, dữ liệu sẽ lưu cục bộ.");
     });
 
     // Sự kiện lọc, phân trang
@@ -632,7 +764,7 @@
         }
     }));
 
-    // Khởi chạy
+    loadSyncConfig();
     refreshFilterAndRender();
 </script>
 </body>
